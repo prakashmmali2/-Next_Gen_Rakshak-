@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { StatusBar, View, ActivityIndicator, StyleSheet } from 'react-native';
+// NavigationContainer provides the routing configuration
 import { NavigationContainer } from '@react-navigation/native';
+// createNativeStackNavigator creates native stack navigators
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
