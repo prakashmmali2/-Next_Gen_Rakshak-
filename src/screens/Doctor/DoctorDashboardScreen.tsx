@@ -110,7 +110,7 @@ export const DoctorDashboardScreen: React.FC<DoctorDashboardScreenProps> = ({ na
             <Text style={styles.greeting}>Welcome</Text>
             <Text style={styles.doctorName}>Dr. {user?.name}</Text>
           </View>
-          <TouchableOpacity>
+          <TouchableOpacity onPress={() => navigation.navigate('DoctorAlerts')}>
             <Ionicons name="notifications" size={24} color={colors.textPrimary} />
           </TouchableOpacity>
         </View>

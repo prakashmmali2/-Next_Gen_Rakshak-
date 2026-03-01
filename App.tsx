@@ -30,10 +30,10 @@ import {
 } from './src/screens/Patient';
 
 // Caregiver Screens
-import { CaregiverDashboardScreen } from './src/screens/Caregiver';
+import { CaregiverDashboardScreen, CaregiverMedicinesScreen, CaregiverAdherenceScreen } from './src/screens/Caregiver';
 
 // Doctor Screens
-import { DoctorDashboardScreen } from './src/screens/Doctor';
+import { DoctorDashboardScreen, PatientListScreen, PatientDetailScreen, DoctorAlertsScreen, AppointmentsScreen } from './src/screens/Doctor';
 
 // Types
 import {
@@ -153,8 +153,8 @@ const CaregiverNavigator = () => {
       }}
     >
       <CaregiverStack.Screen name="CaregiverDashboard" component={CaregiverDashboardScreen} />
-      <CaregiverStack.Screen name="PatientMedicines" component={PatientMedicinesScreen} />
-      <CaregiverStack.Screen name="CaregiverAdherence" component={PatientAdherenceScreen} />
+      <CaregiverStack.Screen name="PatientMedicines" component={CaregiverMedicinesScreen} />
+      <CaregiverStack.Screen name="CaregiverAdherence" component={CaregiverAdherenceScreen} />
     </CaregiverStack.Navigator>
   );
 };
@@ -168,8 +168,11 @@ const DoctorNavigator = () => {
       }}
     >
       <DoctorStack.Screen name="DoctorDashboard" component={DoctorDashboardScreen} />
-      <DoctorStack.Screen name="PatientList" component={PatientMedicinesScreen} />
+      <DoctorStack.Screen name="PatientList" component={PatientListScreen} />
+      <DoctorStack.Screen name="PatientDetail" component={PatientDetailScreen} />
       <DoctorStack.Screen name="PatientAdherenceReport" component={PatientAdherenceScreen} />
+      <DoctorStack.Screen name="DoctorAlerts" component={DoctorAlertsScreen} />
+      <DoctorStack.Screen name="Appointments" component={AppointmentsScreen} />
     </DoctorStack.Navigator>
   );
 };

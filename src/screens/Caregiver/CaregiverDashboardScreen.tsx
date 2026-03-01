@@ -19,6 +19,7 @@ import { Card, Button } from '../../components';
 import { useAuth } from '../../context/AuthContext';
 import { getMedicinesByPatient, calculateAdherenceRate, getWeeklyAdherence } from '../../services/medicineService';
 import { getLinkedPatient } from '../../services/authService';
+import { getCaregiverAlerts, Alert } from '../../services/alertService';
 
 type CaregiverDashboardScreenProps = {
   navigation: NativeStackNavigationProp<CaregiverStackParamList, 'CaregiverDashboard'>;
@@ -29,10 +30,14 @@ const screenWidth = Dimensions.get('window').width;
 export const CaregiverDashboardScreen: React.FC<CaregiverDashboardScreenProps> = ({ navigation }) => {
   const { user } = useAuth();
   const [patient, setPatient] = useState<User | null>(null);
-  const [medicines, setMedicines] = useState<Medicine[]>([]);
+const [medicines, setMedicines] = useState<Medicine[]>([]);
   const [adherenceRate, setAdherenceRate] = useState(100);
   const [weeklyStats, setWeeklyStats] = useState<AdherenceStat[]>([]);
   const [refreshing, setRefreshing] = useState(false);
+  const [alerts, setAlerts] = useState<Alert[]>([]);
+  const [missedCount, setMissedCount] = useState(0);
+  const [lowStockCount, setLowStockCount] = useState(0);
+  const [lowAdherence, setLowAdherence] = useState(false);
 
   const loadData = async () => {
     if (!user) return;
@@ -41,14 +46,19 @@ export const CaregiverDashboardScreen: React.FC<CaregiverDashboardScreenProps> =
       const linkedPatient = await getLinkedPatient(user.id, user.role);
       if (linkedPatient) {
         setPatient(linkedPatient);
-        const [meds, rate, weekly] = await Promise.all([
+const [meds, rate, weekly, caregiverAlerts] = await Promise.all([
           getMedicinesByPatient(linkedPatient.id),
           calculateAdherenceRate(linkedPatient.id),
           getWeeklyAdherence(linkedPatient.id),
+          getCaregiverAlerts(linkedPatient.id),
         ]);
         setMedicines(meds);
         setAdherenceRate(rate);
         setWeeklyStats(weekly);
+        setAlerts(caregiverAlerts.alerts);
+        setMissedCount(caregiverAlerts.missedCount);
+        setLowStockCount(caregiverAlerts.lowStockCount);
+        setLowAdherence(caregiverAlerts.lowAdherence);
       }
     } catch (error) {
       console.error('Error loading data:', error);
@@ -181,19 +191,56 @@ export const CaregiverDashboardScreen: React.FC<CaregiverDashboardScreenProps> =
           />
         </View>
 
-        <Card style={styles.alertsCard}>
+<Card style={styles.alertsCard}>
           <Text style={styles.alertsTitle}>Alerts</Text>
-          {medicines.filter(m => m.stock <= 5).length > 0 ? (
+          
+          {/* Low Adherence Alert */}
+          {lowAdherence ? (
+            <View style={[styles.alertItem, styles.criticalAlertItem]}>
+              <Ionicons name="warning" size={20} color={colors.error} />
+              <Text style={[styles.alertText, styles.criticalAlertText]}>
+                Low adherence: {adherenceRate}% (below 60%)
+              </Text>
+            </View>
+          ) : (
             <View style={styles.alertItem}>
+              <Ionicons name="checkmark-circle" size={20} color={colors.success} />
+              <Text style={styles.alertText}>Adherence is good</Text>
+            </View>
+          )}
+          
+          {/* Missed 3 Times Alert */}
+          {missedCount > 0 ? (
+            <View style={[styles.alertItem, styles.criticalAlertItem]}>
+              <Ionicons name="alert-circle" size={20} color={colors.error} />
+              <Text style={[styles.alertText, styles.criticalAlertText]}>
+                {missedCount} medicine(s) missed 3+ times
+              </Text>
+            </View>
+          ) : null}
+          
+          {/* Low Stock Alert */}
+          {lowStockCount > 0 ? (
+            <View style={[styles.alertItem, styles.warningAlertItem]}>
               <Ionicons name="warning" size={20} color={colors.warning} />
-              <Text style={styles.alertText}>
-                {medicines.filter(m => m.stock <= 5).length} medicine(s) with low stock
+              <Text style={[styles.alertText, styles.warningAlertText]}>
+                {lowStockCount} medicine(s) with low stock
               </Text>
             </View>
           ) : (
             <View style={styles.alertItem}>
               <Ionicons name="checkmark-circle" size={20} color={colors.success} />
               <Text style={styles.alertText}>All medicines are well stocked</Text>
+            </View>
+          )}
+          
+{/* Show count of total alerts */}
+          {alerts.length > 0 && (
+            <View style={styles.viewAllButton}>
+              <Ionicons name="alert-circle" size={20} color={colors.error} />
+              <Text style={styles.viewAllText}>
+                Total: {alerts.length} alert(s) need attention
+              </Text>
             </View>
           )}
         </Card>
@@ -330,15 +377,47 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
     marginBottom: spacing.md,
   },
-  alertItem: {
+alertItem: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
     marginBottom: spacing.sm,
   },
+  criticalAlertItem: {
+    backgroundColor: colors.error + '15',
+    padding: spacing.sm,
+    borderRadius: borderRadius.sm,
+  },
+  criticalAlertText: {
+    color: colors.error,
+    fontWeight: '600',
+  },
+  warningAlertItem: {
+    backgroundColor: colors.warning + '15',
+    padding: spacing.sm,
+    borderRadius: borderRadius.sm,
+  },
+  warningAlertText: {
+    color: colors.warning,
+    fontWeight: '600',
+  },
   alertText: {
     fontSize: fontSize.md,
     color: colors.textSecondary,
+  },
+  viewAllButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: spacing.md,
+    paddingVertical: spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  viewAllText: {
+    fontSize: fontSize.md,
+    color: colors.primary,
+    fontWeight: '600',
   },
   bottomPadding: {
     height: spacing.xl,

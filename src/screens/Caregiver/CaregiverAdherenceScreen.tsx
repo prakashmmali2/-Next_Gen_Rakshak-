@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -11,59 +11,58 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useFocusEffect } from '@react-navigation/native';
 import { LineChart } from 'react-native-chart-kit';
 import { colors, spacing, fontSize, borderRadius } from '../../utils/theme';
-import { PatientStackParamList, AdherenceStat, AdherenceDetails } from '../../types';
+import { CaregiverStackParamList, AdherenceStat, AdherenceDetails } from '../../types';
 import { Card } from '../../components';
 import { useAuth } from '../../context/AuthContext';
 import { getWeeklyAdherence, getMonthlyAdherence, calculateAdherenceDetails } from '../../services/medicineService';
-import { getAdaptiveTimingSummary } from '../../services/adaptiveTimeService';
+import { getLinkedPatient } from '../../services/authService';
 
-type PatientAdherenceScreenProps = {
-  navigation: NativeStackNavigationProp<PatientStackParamList, 'PatientAdherence'>;
+type CaregiverAdherenceScreenProps = {
+  navigation: NativeStackNavigationProp<CaregiverStackParamList, 'CaregiverAdherence'>;
 };
 
 const screenWidth = Dimensions.get('window').width;
 
-interface AdaptiveTimingSummary {
-  medicinesWithAdaptiveTiming: number;
-  medicinesPendingData: number;
-  overallAverageDelay: number;
-}
-
-export const PatientAdherenceScreen: React.FC<PatientAdherenceScreenProps> = ({ navigation }) => {
+export const CaregiverAdherenceScreen: React.FC<CaregiverAdherenceScreenProps> = ({ navigation }) => {
   const { user } = useAuth();
+  const [patient, setPatient] = useState<any>(null);
   const [period, setPeriod] = useState<'weekly' | 'monthly'>('weekly');
   const [stats, setStats] = useState<AdherenceStat[]>([]);
   const [adherenceDetails, setAdherenceDetails] = useState<AdherenceDetails | null>(null);
   const [refreshing, setRefreshing] = useState(false);
-  const [adaptiveSummary, setAdaptiveSummary] = useState<AdaptiveTimingSummary | null>(null);
 
-  const loadStats = async () => {
+  const loadData = async () => {
     if (!user) return;
 
     try {
-      const [weekly, details, adaptive] = await Promise.all([
-        period === 'weekly' ? getWeeklyAdherence(user.id) : getMonthlyAdherence(user.id),
-        calculateAdherenceDetails(user.id),
-        getAdaptiveTimingSummary(user.id),
-      ]);
-      
-      setStats(weekly);
-      setAdherenceDetails(details);
-      setAdaptiveSummary(adaptive);
+      const linkedPatient = await getLinkedPatient(user.id, user.role);
+      if (linkedPatient) {
+        setPatient(linkedPatient);
+        const [weekly, details] = await Promise.all([
+          period === 'weekly' ? getWeeklyAdherence(linkedPatient.id) : getMonthlyAdherence(linkedPatient.id),
+          calculateAdherenceDetails(linkedPatient.id),
+        ]);
+        
+        setStats(weekly);
+        setAdherenceDetails(details);
+      }
     } catch (error) {
-      console.error('Error loading stats:', error);
+      console.error('Error loading data:', error);
     }
   };
 
-  useEffect(() => {
-    loadStats();
-  }, [user, period]);
+  useFocusEffect(
+    useCallback(() => {
+      loadData();
+    }, [user, period])
+  );
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await loadStats();
+    await loadData();
     setRefreshing(false);
   };
 
@@ -74,10 +73,10 @@ export const PatientAdherenceScreen: React.FC<PatientAdherenceScreenProps> = ({ 
   };
 
   const getAdherenceMessage = (rate: number) => {
-    if (rate >= 90) return 'Excellent! You\'re doing great!';
-    if (rate >= 80) return 'Good job! Keep it up!';
+    if (rate >= 90) return 'Excellent! The patient is doing great!';
+    if (rate >= 80) return 'Good adherence. Keep it up!';
     if (rate >= 60) return 'Room for improvement';
-    return 'Needs attention';
+    return 'Needs attention - Below 60%';
   };
 
   const chartData = {
@@ -104,10 +103,6 @@ export const PatientAdherenceScreen: React.FC<PatientAdherenceScreenProps> = ({ 
   const mostMissedTime = adherenceDetails?.mostMissedTimePeriod || 'N/A';
   const currentAdherence = adherenceDetails?.adherencePercentage || 100;
 
-  const adaptiveMedicines = adaptiveSummary?.medicinesWithAdaptiveTiming || 0;
-  const pendingMedicines = adaptiveSummary?.medicinesPendingData || 0;
-  const overallDelay = adaptiveSummary?.overallAverageDelay || 0;
-
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView
@@ -120,62 +115,18 @@ export const PatientAdherenceScreen: React.FC<PatientAdherenceScreenProps> = ({ 
           <TouchableOpacity onPress={() => navigation.goBack()}>
             <Ionicons name="arrow-back" size={24} color={colors.textPrimary} />
           </TouchableOpacity>
-          <Text style={styles.title}>Adherence Intelligence</Text>
+          <Text style={styles.title}>
+            {patient ? `${patient.name}'s Adherence` : 'Adherence'}
+          </Text>
           <View style={{ width: 24 }} />
         </View>
 
-        <Card style={styles.adaptiveCard}>
-          <View style={styles.adaptiveHeader}>
-            <View style={styles.adaptiveTitleRow}>
-              <Ionicons name="speedometer" size={24} color={colors.primary} />
-              <Text style={styles.adaptiveTitle}>Smart Time Engine</Text>
-            </View>
-            {adaptiveMedicines > 0 ? (
-              <View style={styles.adaptiveBadgeActive}>
-                <Text style={styles.adaptiveBadgeText}>ACTIVE</Text>
-              </View>
-            ) : (
-              <View style={styles.adaptiveBadgePending}>
-                <Text style={styles.adaptiveBadgeTextPending}>LEARNING</Text>
-              </View>
-            )}
-          </View>
-          
-          <View style={styles.adaptiveStatsRow}>
-            <View style={styles.adaptiveStat}>
-              <Text style={styles.adaptiveStatValue}>{adaptiveMedicines}</Text>
-              <Text style={styles.adaptiveStatLabel}>Adaptive</Text>
-            </View>
-            <View style={styles.adaptiveDivider} />
-            <View style={styles.adaptiveStat}>
-              <Text style={styles.adaptiveStatValue}>{pendingMedicines}</Text>
-              <Text style={styles.adaptiveStatLabel}>Collecting Data</Text>
-            </View>
-            <View style={styles.adaptiveDivider} />
-            <View style={styles.adaptiveStat}>
-              <Text style={styles.adaptiveStatValue}>+{overallDelay}</Text>
-              <Text style={styles.adaptiveStatLabel}>Avg Delay (min)</Text>
-            </View>
-          </View>
-
-          {adaptiveMedicines > 0 && (
-            <View style={styles.adaptiveInfo}>
-              <Ionicons name="information-circle" size={16} color={colors.primary} />
-              <Text style={styles.adaptiveInfoText}>
-                Your reminders are now adjusted based on your taking patterns!
-              </Text>
-            </View>
-          )}
-
-          {pendingMedicines > 0 && (
-            <View style={styles.adaptiveInfo}>
-              <Ionicons name="hourglass" size={16} color={colors.warning} />
-              <Text style={styles.adaptiveInfoTextPending}>
-                {pendingMedicines} medicine(s) need more day(s) of data for adaptive timing.
-              </Text>
-            </View>
-          )}
-        </Card>
+        <View style={styles.infoContainer}>
+          <Ionicons name="eye-outline" size={16} color={colors.textSecondary} />
+          <Text style={styles.infoText}>
+            View-only - Monitoring patient's medication adherence
+          </Text>
+        </View>
 
         <Card style={styles.rateCard}>
           <View style={styles.rateHeader}>
@@ -185,6 +136,15 @@ export const PatientAdherenceScreen: React.FC<PatientAdherenceScreenProps> = ({ 
             </View>
           </View>
           <Text style={styles.rateMessage}>{getAdherenceMessage(currentAdherence)}</Text>
+          
+          {currentAdherence < 60 && (
+            <View style={styles.alertBanner}>
+              <Ionicons name="warning" size={20} color={colors.white} />
+              <Text style={styles.alertText}>
+                Adherence is below 60% - Needs attention!
+              </Text>
+            </View>
+          )}
         </Card>
 
         <View style={styles.periodContainer}>
@@ -261,7 +221,19 @@ export const PatientAdherenceScreen: React.FC<PatientAdherenceScreenProps> = ({ 
 
         <Card style={styles.insightCard}>
           <Text style={styles.insightTitle}>Weekly Adherence</Text>
-          <Text style={styles.insightValue}>{weeklyAdherence}%</Text>
+          <View style={styles.insightRow}>
+            <Text style={[
+              styles.insightValue, 
+              { color: weeklyAdherence < 60 ? colors.error : colors.primary }
+            ]}>
+              {weeklyAdherence}%
+            </Text>
+            {weeklyAdherence < 60 && (
+              <View style={styles.lowAdherenceBadge}>
+                <Text style={styles.lowAdherenceText}>BELOW 60%</Text>
+              </View>
+            )}
+          </View>
         </Card>
 
         <View style={styles.statsRow}>
@@ -276,22 +248,6 @@ export const PatientAdherenceScreen: React.FC<PatientAdherenceScreenProps> = ({ 
             <Text style={styles.statLabel}>Most Missed Time</Text>
           </Card>
         </View>
-
-        <Card style={styles.tipsCard}>
-          <Text style={styles.tipsTitle}>Tips to Improve</Text>
-          <View style={styles.tipItem}>
-            <Ionicons name="time" size={20} color={colors.primary} />
-            <Text style={styles.tipText}>Set reminders at the same time daily</Text>
-          </View>
-          <View style={styles.tipItem}>
-            <Ionicons name="location" size={20} color={colors.primary} />
-            <Text style={styles.tipText}>Keep medicines in a visible place</Text>
-          </View>
-          <View style={styles.tipItem}>
-            <Ionicons name="journal" size={20} color={colors.primary} />
-            <Text style={styles.tipText}>Track your doses in the app</Text>
-          </View>
-        </Card>
 
         <View style={styles.bottomPadding} />
       </ScrollView>
@@ -315,91 +271,21 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: colors.textPrimary,
   },
-  adaptiveCard: {
-    marginHorizontal: spacing.lg,
-    marginBottom: spacing.md,
+  infoContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
     backgroundColor: colors.surface,
-  },
-  adaptiveHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    marginHorizontal: spacing.lg,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: borderRadius.md,
+    gap: spacing.xs,
     marginBottom: spacing.md,
   },
-  adaptiveTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
-  adaptiveTitle: {
-    fontSize: fontSize.lg,
-    fontWeight: '600',
-    color: colors.textPrimary,
-  },
-  adaptiveBadgeActive: {
-    backgroundColor: colors.success,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
-    borderRadius: borderRadius.sm,
-  },
-  adaptiveBadgePending: {
-    backgroundColor: colors.warning,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.xs,
-    borderRadius: borderRadius.sm,
-  },
-  adaptiveBadgeText: {
-    fontSize: fontSize.xs,
-    fontWeight: 'bold',
-    color: colors.white,
-  },
-  adaptiveBadgeTextPending: {
-    fontSize: fontSize.xs,
-    fontWeight: 'bold',
-    color: colors.white,
-  },
-  adaptiveStatsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    alignItems: 'center',
-    paddingVertical: spacing.sm,
-  },
-  adaptiveStat: {
-    alignItems: 'center',
-  },
-  adaptiveStatValue: {
-    fontSize: fontSize.xxl,
-    fontWeight: 'bold',
-    color: colors.primary,
-  },
-  adaptiveStatLabel: {
-    fontSize: fontSize.xs,
+  infoText: {
+    fontSize: fontSize.sm,
     color: colors.textSecondary,
-    marginTop: spacing.xs,
-  },
-  adaptiveDivider: {
-    width: 1,
-    height: 40,
-    backgroundColor: colors.border,
-  },
-  adaptiveInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    marginTop: spacing.sm,
-    padding: spacing.sm,
-    backgroundColor: colors.background,
-    borderRadius: borderRadius.sm,
-  },
-  adaptiveInfoText: {
-    fontSize: fontSize.sm,
-    color: colors.success,
-    flex: 1,
-  },
-  adaptiveInfoTextPending: {
-    fontSize: fontSize.sm,
-    color: colors.warning,
-    flex: 1,
   },
   rateCard: {
     marginHorizontal: spacing.lg,
@@ -429,6 +315,21 @@ const styles = StyleSheet.create({
     fontSize: fontSize.md,
     color: colors.textSecondary,
     marginTop: spacing.sm,
+  },
+  alertBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.error,
+    padding: spacing.sm,
+    borderRadius: borderRadius.sm,
+    marginTop: spacing.md,
+    gap: spacing.sm,
+  },
+  alertText: {
+    fontSize: fontSize.sm,
+    fontWeight: '600',
+    color: colors.white,
   },
   periodContainer: {
     flexDirection: 'row',
@@ -501,32 +402,27 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: colors.textPrimary,
   },
+  insightRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+  },
   insightValue: {
     fontSize: fontSize.header,
     fontWeight: 'bold',
     color: colors.primary,
-    marginTop: spacing.sm,
   },
-  tipsCard: {
-    marginHorizontal: spacing.lg,
-    marginBottom: spacing.md,
+  lowAdherenceBadge: {
+    backgroundColor: colors.error,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderRadius: borderRadius.sm,
   },
-  tipsTitle: {
-    fontSize: fontSize.lg,
-    fontWeight: '600',
-    color: colors.textPrimary,
-    marginBottom: spacing.md,
-  },
-  tipItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: spacing.sm,
-    gap: spacing.sm,
-  },
-  tipText: {
-    fontSize: fontSize.md,
-    color: colors.textSecondary,
-    flex: 1,
+  lowAdherenceText: {
+    fontSize: fontSize.xs,
+    fontWeight: 'bold',
+    color: colors.white,
   },
   bottomPadding: {
     height: spacing.xl,

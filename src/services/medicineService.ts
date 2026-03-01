@@ -1,5 +1,5 @@
 import { getDatabase } from '../database/database';
-import { Medicine, MedicineLog, AdherenceStat } from '../types';
+import { Medicine, MedicineLog, AdherenceStat, AdherenceDetails } from '../types';
 import { checkAndNotifyLowStock } from './stockService';
 
 export const addMedicine = async (
@@ -66,7 +66,6 @@ export const deleteMedicine = async (medicineId: number): Promise<void> => {
   await db.runAsync('DELETE FROM Medicines WHERE id = ?', [medicineId]);
 };
 
-// Medicine Logs
 export const createMedicineLog = async (
   medicineId: number,
   patientId: number,
@@ -121,7 +120,6 @@ export const markMedicineTaken = async (
 ): Promise<void> => {
   const db = await getDatabase();
   
-  // Get the log to find medicineId and patientId
   const log = await db.getFirstAsync<MedicineLog>(
     'SELECT * FROM MedicineLogs WHERE id = ?',
     [logId]
@@ -132,7 +130,6 @@ export const markMedicineTaken = async (
     [new Date().toISOString(), notes || '', logId]
   );
   
-  // Check and notify if stock is low
   if (log) {
     await checkAndNotifyLowStock(log.medicineId, log.patientId);
   }
@@ -151,7 +148,6 @@ export const markMedicineSkipped = async (logId: number, notes?: string): Promis
   );
 };
 
-// Adherence Stats
 export const calculateAdherenceRate = async (patientId: number): Promise<number> => {
   const db = await getDatabase();
   const today = new Date().toISOString().split('T')[0];
@@ -215,5 +211,180 @@ export const getMonthlyAdherence = async (patientId: number): Promise<AdherenceS
      ORDER BY date ASC`,
     [patientId]
   );
+  return stats;
+};
+
+// ======================
+// ADHERENCE INTELLIGENCE ENGINE
+// ======================
+
+export const calculateAdherenceDetails = async (patientId: number): Promise<AdherenceDetails> => {
+  const db = await getDatabase();
+  
+  const thirtyDaysAgo = new Date();
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+  const dateString = thirtyDaysAgo.toISOString().split('T')[0];
+  
+  const logs = await db.getAllAsync<MedicineLog>(
+    `SELECT * FROM MedicineLogs 
+     WHERE patientId = ? AND date(scheduledTime) >= date(?)
+     ORDER BY scheduledTime ASC`,
+    [patientId, dateString]
+  );
+  
+  const totalDoses = logs.length;
+  const takenDoses = logs.filter(l => l.status === 'taken').length;
+  const skippedDoses = logs.filter(l => l.status === 'skipped').length;
+  const missedDoses = logs.filter(l => l.status === 'missed').length;
+  
+  const adherencePercentage = totalDoses > 0 
+    ? Math.round((takenDoses / totalDoses) * 100) 
+    : 100;
+  
+  const skipRate = totalDoses > 0 
+    ? Math.round((skippedDoses / totalDoses) * 100) 
+    : 0;
+  
+  const missedCount = missedDoses;
+  
+  const weeklyAdherence = await calculateWeeklyAdherence(patientId);
+  const averageDelayTime = await calculateAverageDelayTime(patientId);
+  const mostMissedTimePeriod = await getMostMissedTimePeriod(patientId);
+  
+  return {
+    adherencePercentage,
+    skipRate,
+    missedCount,
+    weeklyAdherence,
+    averageDelayTime,
+    mostMissedTimePeriod,
+    totalDoses,
+    takenDoses,
+    skippedDoses,
+    missedDoses
+  };
+};
+
+export const calculateWeeklyAdherence = async (patientId: number): Promise<number> => {
+  const db = await getDatabase();
+  
+  const sevenDaysAgo = new Date();
+  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+  const dateString = sevenDaysAgo.toISOString().split('T')[0];
+  
+  const result = await db.getFirstAsync<{ total: number; taken: number }>(
+    `SELECT 
+       COUNT(*) as total,
+       SUM(CASE WHEN status = 'taken' THEN 1 ELSE 0 END) as taken
+     FROM MedicineLogs 
+     WHERE patientId = ? AND date(scheduledTime) >= date(?)`,
+    [patientId, dateString]
+  );
+  
+  if (!result || result.total === 0) return 100;
+  
+  return Math.round((result.taken / result.total) * 100);
+};
+
+export const calculateAverageDelayTime = async (patientId: number): Promise<number> => {
+  const db = await getDatabase();
+  
+  const thirtyDaysAgo = new Date();
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+  const dateString = thirtyDaysAgo.toISOString().split('T')[0];
+  
+  const logs = await db.getAllAsync<MedicineLog>(
+    `SELECT * FROM MedicineLogs 
+     WHERE patientId = ? AND date(scheduledTime) >= date(?) AND status = 'taken' AND takenAt IS NOT NULL`,
+    [patientId, dateString]
+  );
+  
+  if (logs.length === 0) return 0;
+  
+  let totalDelay = 0;
+  let countWithDelay = 0;
+  
+  logs.forEach(log => {
+    if (log.takenAt) {
+      const scheduled = new Date(log.scheduledTime).getTime();
+      const taken = new Date(log.takenAt).getTime();
+      const delayMinutes = (taken - scheduled) / (1000 * 60);
+      
+      if (delayMinutes > 0) {
+        totalDelay += delayMinutes;
+        countWithDelay++;
+      }
+    }
+  });
+  
+  return countWithDelay > 0 ? Math.round(totalDelay / countWithDelay) : 0;
+};
+
+export const getMostMissedTimePeriod = async (patientId: number): Promise<string> => {
+  const db = await getDatabase();
+  
+  const thirtyDaysAgo = new Date();
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+  const dateString = thirtyDaysAgo.toISOString().split('T')[0];
+  
+  const logs = await db.getAllAsync<MedicineLog>(
+    `SELECT * FROM MedicineLogs 
+     WHERE patientId = ? AND date(scheduledTime) >= date(?) AND (status = 'missed' OR status = 'skipped')`,
+    [patientId, dateString]
+  );
+  
+  if (logs.length === 0) return 'No misses recorded';
+  
+  const timePeriods: Record<string, number> = {
+    'Morning': 0,
+    'Afternoon': 0,
+    'Evening': 0,
+    'Night': 0
+  };
+  
+  logs.forEach(log => {
+    const hour = new Date(log.scheduledTime).getHours();
+    
+    if (hour >= 6 && hour < 12) {
+      timePeriods['Morning']++;
+    } else if (hour >= 12 && hour < 18) {
+      timePeriods['Afternoon']++;
+    } else if (hour >= 18 && hour < 24) {
+      timePeriods['Evening']++;
+    } else {
+      timePeriods['Night']++;
+    }
+  });
+  
+  let maxPeriod = 'Morning';
+  let maxCount = 0;
+  
+  Object.entries(timePeriods).forEach(([period, count]) => {
+    if (count > maxCount) {
+      maxCount = count;
+      maxPeriod = period;
+    }
+  });
+  
+  return maxCount > 0 ? maxPeriod : 'No misses recorded';
+};
+
+export const getDetailedAdherenceStats = async (
+  patientId: number, 
+  days: number = 7
+): Promise<AdherenceStat[]> => {
+  const db = await getDatabase();
+  
+  const startDate = new Date();
+  startDate.setDate(startDate.getDate() - days);
+  const dateString = startDate.toISOString().split('T')[0];
+  
+  const stats = await db.getAllAsync<AdherenceStat>(
+    `SELECT * FROM AdherenceStats 
+     WHERE patientId = ? AND date >= date(?)
+     ORDER BY date ASC`,
+    [patientId, dateString]
+  );
+  
   return stats;
 };

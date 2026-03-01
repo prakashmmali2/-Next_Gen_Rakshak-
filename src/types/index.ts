@@ -44,6 +44,19 @@ export interface AdherenceStat {
   adherenceRate: number;
 }
 
+export interface AdherenceDetails {
+  adherencePercentage: number;
+  skipRate: number;
+  missedCount: number;
+  weeklyAdherence: number;
+  averageDelayTime: number; // in minutes
+  mostMissedTimePeriod: string;
+  totalDoses: number;
+  takenDoses: number;
+  skippedDoses: number;
+  missedDoses: number;
+}
+
 export interface Relationship {
   id: number;
   patientId: number;
@@ -51,6 +64,17 @@ export interface Relationship {
   doctorId?: number;
   relationshipType: string;
   linkedAt: string;
+}
+
+export interface Appointment {
+  id: number;
+  patientId: number;
+  doctorId: number;
+  date: string;
+  time: string;
+  notes?: string;
+  status: 'scheduled' | 'completed' | 'cancelled';
+  createdAt: string;
 }
 
 export interface FaceScanReport {
@@ -84,7 +108,10 @@ export type CaregiverStackParamList = {
 export type DoctorStackParamList = {
   DoctorDashboard: undefined;
   PatientList: undefined;
+  PatientDetail: { patientId: number };
   PatientAdherenceReport: { patientId: number };
+  DoctorAlerts: undefined;
+  Appointments: undefined;
   Consultations: undefined;
   DoctorProfile: undefined;
 };
